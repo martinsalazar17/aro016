@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>USC CALR - Finance Access</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #F2F2F2;
+    font-family: Arial, sans-serif;
+  }
+  #loader {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #FFFFFF;   /* opaque, and matches the video's own background */
+    color: #5c6a61;
+    z-index: 2;
+    transition: opacity 0.3s ease;
+  }
+  #loaderStage {
+    position: relative;
+    width: min(60vw, 260px);
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #loaderVideo {
+    width: 100%;
+    height: auto;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  #loaderVideo.playing { opacity: 1; }
+  #loaderFallback {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    animation: fadeIn 0.3s ease 1.5s forwards;  /* only appears if the video hasn't started by ~1.5s */
+  }
+  @keyframes fadeIn { to { opacity: 1; } }
+  #loaderFallback .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(8,44,31,0.12);
+    border-top-color: #b8893b;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #app-frame {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    z-index: 1;
+  }
+</style>
+<script>
+  /* The launch screen fades out only when ALL of these are true:
+       - the video has played through once   (videoDone)
+       - the Apps Script iframe has loaded   (iframeLoaded)
+       - the app says its first screen is up (appReady)
+     Each has a safety valve so a slow or missing piece never traps the user
+     behind the loader. */
+  var iframeLoaded = false, appReady = false, videoDone = false, videoStarted = false, hidden = false;
+
+  function tryHide() {
+    if (hidden || !(iframeLoaded && appReady && videoDone)) return;
+    hidden = true;
+    var loader = document.getElementById('loader');
+    loader.style.opacity = '0';
+    setTimeout(function () {
+      loader.style.display = 'none';
+      document.getElementById('loaderVideo').pause();
+    }, 300);
+  }
+  function skipVideo() { videoDone = true; tryHide(); }
+
+  function onFrameLoad() {
+    iframeLoaded = true;
+    // If the app never signals ready (e.g. an older version is deployed), stop waiting after 6s.
+    setTimeout(function () { appReady = true; tryHide(); }, 6000);
+    tryHide();
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'usc-ca-ready') { appReady = true; tryHide(); }
+  });
+
+  window.addEventListener('DOMContentLoaded', function () {
+    var v = document.getElementById('loaderVideo');
+    var fallback = document.getElementById('loaderFallback');
+    v.muted = true;
+
+    v.addEventListener('playing', function () {
+      videoStarted = true;
+      v.classList.add('playing');
+      fallback.style.display = 'none';
+    });
+    v.addEventListener('ended', function () {
+      videoDone = true;
+      // Still waiting on the app? Keep the animation going rather than freezing on the last frame.
+      if (!(iframeLoaded && appReady)) {
+        v.currentTime = 0;
+        var again = v.play();
+        if (again && again.catch) again.catch(function () {});
+      }
+      tryHide();
+    });
+
+    // Don't make anyone wait on a video that can't play.
+    var src = v.querySelector('source');
+    if (src) src.addEventListener('error', skipVideo);
+    v.addEventListener('error', skipVideo);
+    var p = v.play();
+    if (p && p.catch) p.catch(skipVideo);
+    setTimeout(function () { if (!videoStarted) skipVideo(); }, 4000);  // never started
+    setTimeout(skipVideo, 15000);                                       // started but stalled
+  });
+</script>
+</head>
+<body>
+
+  <div id="loader">
+    <div id="loaderStage">
+      <video id="loaderVideo" muted playsinline autoplay preload="auto">
+        <source src="loading.mp4" type="video/mp4">
+      </video>
+      <div id="loaderFallback">
+        <div class="spinner"></div>
+        <div>Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <iframe
+    id="app-frame"
+    src="https://script.google.com/macros/s/AKfycbxSBHVpqyPQ7kpax48OPJ8FSZfxBqlSWYnr85PGpJfKGWwJRfnuVgxKVZ3CvqJJ9ksWiw/exec"
+    title="USC Comptroller - Cash Advances"
+    allow="clipboard-write; autoplay"
+    onload="onFrameLoad()">
+  </iframe>
+
+</body>
+</html>
